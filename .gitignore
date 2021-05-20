@@ -9,5 +9,6 @@ data/*/
 implementations/*/data
 implementations/*/images
 implementations/*/saved_models
+implementations/*/experiments
 
 __pycache__

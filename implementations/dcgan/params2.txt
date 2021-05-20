@@ -1,5 +1,0 @@
-tiles 32
-resize 64
-Epochs 200
-Batch 144
-no normalize

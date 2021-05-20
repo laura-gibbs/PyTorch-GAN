@@ -1,4 +1,0 @@
-D/O 280
-Size 32
-Epochs 200
-Batch 144
