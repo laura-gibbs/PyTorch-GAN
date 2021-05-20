@@ -1,0 +1,4 @@
+tiles 64
+resize 64
+Epochs 200
+Batch 144

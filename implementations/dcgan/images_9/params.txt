@@ -1,0 +1,4 @@
+tiles 32
+Size 32
+Epochs 200
+Batch 144

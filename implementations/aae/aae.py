@@ -124,7 +124,7 @@ if cuda:
     pixelwise_loss.cuda()
 
 # Configure data loader
-os.makedirs("../../data/mnist", exist_ok=True)
+# os.makedirs("../../data/mnist", exist_ok=True)
 dataloader = torch.utils.data.DataLoader(
     # datasets.MNIST(
     #     "../../data/mnist",
@@ -135,7 +135,7 @@ dataloader = torch.utils.data.DataLoader(
     #     ),
     # ),
     CSDataset(
-        root_dir = '../MDT-Calculations/saved_tiles' + '/training/tiles',
+        root_dir = '../MDT-Calculations/saved_tiles' + '/training/tiles_32',
         transform=transforms.Compose([
             transforms.Resize(64),
             transforms.ToTensor(),

@@ -1,0 +1,3 @@
+normal dataset
+s32
+lambda_gp = .001
