@@ -136,7 +136,7 @@ dataloader = torch.utils.data.DataLoader(
     # batch_size=opt.batch_size,
     # shuffle=True,
     CSDataset(
-        root_dir = '../../../MDT-Calculations/saved_tiles' + '/training/mdt_tiles',
+        root_dir = '../../../MDT-Calculations/saved_tiles' + '/training/tiles_32',
         transform=transforms.Compose([
             transforms.Resize(opt.img_size),
             transforms.ToTensor(),
