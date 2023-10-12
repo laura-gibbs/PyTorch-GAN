@@ -1,7 +1,7 @@
 import argparse
 import os
 import numpy as np
-import math
+import shutil
 import sys
 
 import torchvision.transforms as transforms
@@ -16,13 +16,16 @@ import torch.nn.functional as F
 import torch.autograd as autograd
 import torch
 
+sys.path.append('./')
 from csdataset import CSDataset
+from skimage.transform import resize
 
-os.makedirs("images", exist_ok=True)
+from PIL import Image
+import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--n_epochs", type=int, default=200, help="number of epochs of training")
-parser.add_argument("--batch_size", type=int, default=144, help="size of the batches")
+parser.add_argument("--n_epochs", type=int, default=301, help="number of epochs of training")
+parser.add_argument("--batch_size", type=int, default=512, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
 parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
@@ -32,13 +35,36 @@ parser.add_argument("--img_size", type=int, default=32, help="size of each image
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--n_critic", type=int, default=5, help="number of training steps for discriminator per iter")
 parser.add_argument("--clip_value", type=float, default=0.01, help="lower and upper clip value for disc. weights")
-parser.add_argument("--sample_interval", type=int, default=400, help="interval betwen image samples")
+parser.add_argument("--sample_interval", type=int, default=2, help="interval betwen image samples")
+parser.add_argument("--tile_size", type=int, default=32, help="tile size to train network on")
+parser.add_argument("--overlap", type=int, default=16, help="overlap of generated training tiles")
+parser.add_argument("--cs", dest="cs", action="store_true", help="whether the tiles are currents")
 opt = parser.parse_args()
 print(opt)
+
+tile_save_dir = f'wgan_gp/wgan_gp_{"cs" if opt.cs else "mdt"}_tiles_{opt.tile_size}'
+tile_training_dir = f'C:/Users/oa18724/Documents/Master_PhD_folder/MDT-Calculations/saved_tiles/training/rescaled_tiles/{"cs" if opt.cs else "mdt"}-size{opt.tile_size}-overlap{opt.overlap}'
+
+os.makedirs("wgan_gp/images", exist_ok=True)
+if os.path.exists(tile_save_dir):
+    shutil.rmtree(tile_save_dir)
+os.makedirs(tile_save_dir, exist_ok=True)
 
 img_shape = (opt.channels, opt.img_size, opt.img_size)
 
 cuda = True if torch.cuda.is_available() else False
+
+
+def bound_and_norm(tens):
+    return tens * 2 - 1
+
+
+def save_tile(t, fp):
+    t = (t + 1) / 2 #  Scale from [-1, 1] to [0, 1]
+    arr = t.cpu().numpy()
+    arr = (arr[0,0] * 255).astype(np.uint8)
+    im = Image.fromarray(arr)
+    im.save(fp)
 
 
 class Generator(nn.Module):
@@ -86,7 +112,7 @@ class Discriminator(nn.Module):
 
 
 # Loss weight for gradient penalty
-lambda_gp = .001
+lambda_gp = .1
 
 # Initialize generator and discriminator
 generator = Generator()
@@ -97,23 +123,15 @@ if cuda:
     discriminator.cuda()
 
 # Configure data loader
-# os.makedirs("../../data/mnist", exist_ok=True)
 dataloader = torch.utils.data.DataLoader(
-    # datasets.MNIST(
-    #     "../../data/mnist",
-    #     train=True,
-    #     download=True,
-    #     transform=transforms.Compose(
-    #         [transforms.Resize(opt.img_size), transforms.ToTensor(), transforms.Normalize([0.5], [0.5])]
-    #     ),
-    # ),
-    # batch_size=opt.batch_size,
-    # shuffle=True,
     CSDataset(
-        root_dir = '../../../MDT-Calculations/saved_tiles' + '/training/tiles_32',
+        # root_dir = '../../../MDT-Calculations/saved_tiles/training/tiles_32_global_geodetic_only/',
+        root_dir=tile_training_dir,
         transform=transforms.Compose([
-            # transforms.Resize(64),
-            transforms.ToTensor()
+            transforms.Resize((opt.img_size, opt.img_size)),
+            transforms.ToTensor(),
+            # transforms.Lambda(bound_and_norm),
+            transforms.Lambda(lambda x: (x - x.min()) / (x.max() - x.min()) * 2 - 1),
             # transforms.Normalize([0.5], [0.5])
         ])
     ),
@@ -209,9 +227,18 @@ for epoch in range(opt.n_epochs):
                 % (epoch, opt.n_epochs, i, len(dataloader), d_loss.item(), g_loss.item())
             )
 
-            if batches_done % opt.sample_interval == 0:
-                save_image(fake_imgs.data[:144], "images/%d.png" % epoch, nrow=12, normalize=True)
-                # for i in range(144):
-                    # save_image(fake_imgs.data[i].unsqueeze(0), "tiles/%d_"% epoch + str(i) + ".png")
-
             batches_done += opt.n_critic
+    if epoch % opt.sample_interval == 0:
+        gen_imgs = F.interpolate(fake_imgs, (opt.tile_size, opt.tile_size), mode='bilinear')
+        gen_imgs = (gen_imgs - gen_imgs.min())/(gen_imgs.max() - gen_imgs.min())
+        save_image(gen_imgs.data[:144], "wgan_gp/images/%d.png" % epoch, nrow=12, normalize=True)
+    if epoch == opt.n_epochs-1:
+        print('running')
+        with torch.no_grad():
+            for j in range(200):
+                z = Variable(Tensor(np.random.normal(0, 1, (opt.batch_size, opt.latent_dim))))
+                gen_imgs = generator(z)
+                gen_imgs = F.interpolate(gen_imgs, (opt.tile_size, opt.tile_size), mode='bilinear')
+                arrs = gen_imgs.cpu().numpy()
+                for k in range(opt.batch_size):
+                    save_tile(gen_imgs.data[k].unsqueeze(0), f"{tile_save_dir}/{epoch}_{k}_{j}.png")

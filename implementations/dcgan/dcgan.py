@@ -1,7 +1,8 @@
 import argparse
 import os
 import numpy as np
-import math
+import shutil
+import sys
 
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
@@ -14,15 +15,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch
 
+sys.path.append('./')
 from csdataset import CSDataset
 from skimage.transform import resize
 
-
-os.makedirs("images", exist_ok=True)
+from PIL import Image
+import matplotlib.pyplot as plt
+import yaml
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--n_epochs", type=int, default=301, help="number of epochs of training")
-parser.add_argument("--batch_size", type=int, default=256, help="size of the batches")
+parser.add_argument("-n", "--n_epochs", type=int, default=301, help="number of epochs of training")
+parser.add_argument("--batch_size", type=int, default=512, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
 parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
 parser.add_argument("--b2", type=float, default=0.999, help="adam: decay of first order momentum of gradient")
@@ -31,10 +34,34 @@ parser.add_argument("--latent_dim", type=int, default=100, help="dimensionality 
 parser.add_argument("--img_size", type=int, default=64, help="size of each image dimension")
 parser.add_argument("--channels", type=int, default=1, help="number of image channels")
 parser.add_argument("--sample_interval", type=int, default=2, help="interval between image sampling")
+parser.add_argument("--tile_size", type=int, default=32, help="tile size to train network on")
+parser.add_argument("--overlap", type=int, default=16, help="overlap of generated training tiles")
+parser.add_argument("--cs", dest="cs", action="store_true", help="whether the tiles are currents")
 opt = parser.parse_args()
 print(opt)
 
+tile_save_dir = f'dcgan/gan_{"cs" if opt.cs else "mdt"}_tiles_{opt.tile_size}'
+tile_training_dir = f'C:/Users/oa18724/Documents/Master_PhD_folder/MDT-Calculations/saved_tiles/training/rescaled_tiles/{"cs" if opt.cs else "mdt"}-size{opt.tile_size}-overlap{opt.overlap}'
+
+os.makedirs("dcgan/images", exist_ok=True)
+if os.path.exists(tile_save_dir):
+    shutil.rmtree(tile_save_dir)
+os.makedirs(tile_save_dir)
+
 cuda = True if torch.cuda.is_available() else False
+
+
+def bound_and_norm(tens):
+    # From [0, 1] to [-1, 1]
+    return tens * 2 - 1
+
+
+def save_tile(t, fp):
+    t = (t + 1) / 2 #  Scale from [-1, 1] to [0, 1]
+    arr = t.cpu().numpy()
+    arr = (arr[0,0] * 255).astype(np.uint8)
+    im = Image.fromarray(arr)
+    im.save(fp)
 
 
 def weights_init_normal(m):
@@ -97,11 +124,8 @@ class Discriminator(nn.Module):
 
     def forward(self, img):
         out = self.model(img)
-        # print(out.shape)
         out = out.view(out.shape[0], -1)
-        # print(out.shape)
         validity = self.adv_layer(out)
-        # print(out.shape)
 
         return validity
 
@@ -123,22 +147,11 @@ generator.apply(weights_init_normal)
 discriminator.apply(weights_init_normal)
 
 # Configure data loader
-# os.makedirs("../../data/mnist", exist_ok=True)
 dataloader = torch.utils.data.DataLoader(
-    # datasets.MNIST(
-    #     "../../data/mnist",
-    #     train=True,
-    #     download=True,
-    #     transform=transforms.Compose(
-    #         [transforms.Resize(opt.img_size), transforms.ToTensor(), transforms.Normalize([0.5], [0.5])]
-    #     ),
-    # ),
-    # batch_size=opt.batch_size,
-    # shuffle=True,
     CSDataset(
-        root_dir = '../../../MDT-Calculations/saved_tiles' + '/training/tiles_32',
+        root_dir=tile_training_dir,
         transform=transforms.Compose([
-            transforms.Resize(opt.img_size),
+            transforms.Resize((opt.img_size, opt.img_size)),
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5])
         ])
@@ -204,27 +217,26 @@ for epoch in range(opt.n_epochs):
             % (epoch, opt.n_epochs, i, len(dataloader), d_loss.item(), g_loss.item())
         )
         # Add code to resize image up
-        # batches_done = epoch * len(dataloader) + i
-        if epoch % opt.sample_interval == 0:
-            gen_imgs = F.interpolate(gen_imgs, (32,32), mode='bilinear')
-            save_image(gen_imgs.data[:144], "images/%d.png" % epoch, nrow=12, normalize=True)
-            if epoch == 300:
-                print(epoch, "running")
-                with torch.no_grad():
-                    for j in range(3000):
-                        z = Variable(Tensor(np.random.normal(0, 1, (imgs.shape[0], opt.latent_dim))))
-                        gen_imgs = generator(z)
-                        gen_imgs = F.interpolate(gen_imgs, (32,32), mode='bilinear')
-                        for k in range(opt.batch_size):
-                            # print("running")
-                            save_image(gen_imgs.data[k].unsqueeze(0), "mdt_tiles/%d_"% epoch + str(k) + '_' + str(j) + ".png", normalize=True)
-                            #   save_image(gen_img[k], f"gen_tiles/tile_{j*opt.batch_size+k}.png", normalize=True)
-
-            # Save tiles code from home PC
-            # save_image(gen_imgs.data[:64], "images/%d.png" % epoch, nrow=8, normalize=True)
-            # if epoch == 299:
-            #     for j in range(3000):
-            #         z = Variable(Tensor(np.random.normal(0, 1, (imgs.shape[0], opt.latent_dim))))
-            #         gen_img = generator(z)
-            #         for k in range(opt.batch_size):
-            #             save_image(gen_img[k], f"gen_tiles/tile_{j*opt.batch_size+k}.png", normalize=True)
+        batches_done = epoch * len(dataloader) + i
+    if epoch % opt.sample_interval == 0:
+        gen_imgs = F.interpolate(gen_imgs, (opt.tile_size, opt.tile_size), mode='bilinear')
+        gen_imgs = (gen_imgs - gen_imgs.min())/(gen_imgs.max() - gen_imgs.min())
+        save_image(gen_imgs.data[:144], "dcgan/images/%d.png" % epoch, nrow=12, normalize=True)
+    if epoch == opt.n_epochs-1:
+        print('running')
+        # save yaml and trained model
+        with open(f'{tile_save_dir}/config.yml', 'w') as f:
+            yaml.dump(opt, f)
+        # save model
+        # torch.save(model.state_dict(), os.path.join(
+        #     save_dir,
+        #     save_name
+        # ))
+        with torch.no_grad():
+            for j in range(200):
+                z = Variable(Tensor(np.random.normal(0, 1, (opt.batch_size, opt.latent_dim))))
+                gen_imgs = generator(z)
+                gen_imgs = F.interpolate(gen_imgs, (opt.tile_size, opt.tile_size), mode='bilinear')
+                arrs = gen_imgs.cpu().numpy()
+                for k in range(opt.batch_size):
+                    save_tile(gen_imgs.data[k].unsqueeze(0), f"{tile_save_dir}/{epoch}_{k}_{j}.png")

@@ -8,7 +8,7 @@ from skimage import io, transform
 from torchvision.transforms import ToTensor
 from PIL import Image
 import torch
-
+import yaml
 
 class CSDataset(Dataset):
 
@@ -17,6 +17,12 @@ class CSDataset(Dataset):
             self.transform = transform
             self.paths = glob.glob(os.path.join(root_dir, '*.png'))
             print(root_dir)
+            with open(os.path.join(root_dir, "_info.yml"), "r") as stream:
+                metadata = yaml.safe_load(stream)
+            self.tile_size = metadata['tile_size_degrees'] * 4
+            self.overlap = metadata['overlap_degrees'] * 4
+            self.fnames = metadata['fnames'] * 4
+             
 
     def __len__(self):
         return len(self.paths)
@@ -24,25 +30,8 @@ class CSDataset(Dataset):
     def __getitem__(self, idx):
         img_name = self.paths[idx]
         image = Image.open(img_name)
-        # image = io.imread(img_name)
-        # print('image type =', image.dtype)
-
+        # print(ToTensor()(image).min(), ToTensor()(image).max(), ToTensor()(image).mean(), ToTensor()(image).std())
         if self.transform is not None:
             image = self.transform(image)
-
+        # print(image.min(), image.max(), image.mean(), image.std())
         return image, torch.tensor(0)
-        # if torch.is_tensor(idx):
-        #     idx = idx.tolist()
-
-        # img_name = os.path.join(self.root_dir,
-        #                         self.landmarks_frame.iloc[idx, 0])
-        # image = io.imread(img_name)
-        # landmarks = self.landmarks_frame.iloc[idx, 1:]
-        # landmarks = np.array([landmarks])
-        # landmarks = landmarks.astype('float').reshape(-1, 2)
-        # sample = {'image': image, 'landmarks': landmarks}
-
-        # if self.transform:
-        #     sample = self.transform(sample)
-
-        # return sample
